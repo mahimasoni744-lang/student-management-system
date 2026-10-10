@@ -1,519 +1,390 @@
-// ======================================================
-// STUDENT MANAGEMENT SYSTEM
-// ======================================================
 
+"use strict";
 
-// ------------------------------------------------------
-// 1. STUDENTS DATA
-// ------------------------------------------------------
+// 1. Load existing student data
+const STORAGE_KEY = "students";
+let students = [];
 
-// localStorage se data lena
-let students =
-    JSON.parse(localStorage.getItem("students")) || [];
+try {
+    const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    students = Array.isArray(data) ? data.map(student => ({
+        ...student,
+        status: student.status || "Active"
+    })) : [];
+} catch {
+    students = [];
+}
 
-
-// Edit ke time student ki ID yahan store hogi
 let editingId = null;
 
+// 2. Select HTML elements
+const $ = id => document.getElementById(id);
 
-// ------------------------------------------------------
-// 2. HTML ELEMENTS
-// ------------------------------------------------------
+const form = $("studentForm");
+const nameInput = $("studentName");
+const rollInput = $("rollNumber");
+const courseInput = $("course");
+const emailInput = $("email");
+const mobileInput = $("mobile");
+const statusInput = $("status");
 
-const studentForm =
-    document.getElementById("studentForm");
+const tableBody = $("studentTableBody");
+const searchInput = $("searchStudent");
+const globalSearch = $("globalSearch");
+const filterStatus = $("filterStatus");
+const submitBtn = $("submitBtn");
+const formTitle = $("formTitle");
+const toast = $("toast");
 
-const studentName =
-    document.getElementById("studentName");
+let toastTimer;
 
-const rollNumber =
-    document.getElementById("rollNumber");
+// 3. Notifications
+function showToast(message) {
+    toast.textContent = message;
+    toast.classList.add("show");
+    clearTimeout(toastTimer);
 
-const course =
-    document.getElementById("course");
+    toastTimer = setTimeout(() => {
+        toast.classList.remove("show");
+    }, 2800);
+}
 
-const email =
-    document.getElementById("email");
+// 4. Safely display user-entered text
+function escapeHTML(value) {
+    const entities = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+    };
 
-const mobile =
-    document.getElementById("mobile");
+    return String(value ?? "").replace(/[&<>"']/g, ch => entities[ch]);
+}
 
-const studentTableBody =
-    document.getElementById("studentTableBody");
-
-const totalStudents =
-    document.getElementById("totalStudents");
-
-const activeStudents =
-    document.getElementById("activeStudents");
-
-const searchStudent =
-    document.getElementById("searchStudent");
-
-const submitBtn =
-    document.getElementById("submitBtn");
-
-const cancelBtn =
-    document.getElementById("cancelBtn");
-
-const formTitle =
-    document.getElementById("formTitle");
-
-
-// ------------------------------------------------------
-// 3. SAVE DATA
-// ------------------------------------------------------
-
+// 5. Save student data
 function saveStudents() {
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(students));
+        return true;
+    } catch (error) {
+        showToast("Could not save data. Browser storage may be full.");
+        return false;
+    }
+}
 
-    localStorage.setItem(
-        "students",
-        JSON.stringify(students)
+// 6. Update dashboard cards
+function updateDashboard() {
+    $("totalStudents").textContent = students.length;
+
+    $("activeStudents").textContent = students.filter(
+        student => student.status === "Active"
+    ).length;
+
+    $("inactiveStudents").textContent = students.filter(
+        student => student.status === "Inactive"
+    ).length;
+
+    const uniqueCourses = new Set(
+        students.map(student => student.course).filter(Boolean)
     );
 
+    $("totalCourses").textContent = uniqueCourses.size;
 }
 
+// 7. Display student table
+function displayStudents() {
+    const query = searchInput.value.trim().toLowerCase();
+    const selectedStatus = filterStatus.value;
 
-// ------------------------------------------------------
-// 4. DISPLAY STUDENTS
-// ------------------------------------------------------
+    const filtered = students.filter(student => {
+        const matchesSearch = [
+            student.name,
+            student.roll,
+            student.email,
+            student.course,
+            student.mobile
+        ].some(value =>
+            String(value ?? "").toLowerCase().includes(query)
+        );
 
-function displayStudents(list = students) {
+        const matchesStatus =
+            selectedStatus === "All" ||
+            student.status === selectedStatus;
 
-    // Table ko empty karna
-    studentTableBody.innerHTML = "";
-
-
-    // Agar koi student nahi hai
-    if (list.length === 0) {
-
-        studentTableBody.innerHTML = `
-            <tr>
-                <td colspan="7" class="no-data">
-                    No student records found.
-                </td>
-            </tr>
-        `;
-
-        updateCounts();
-
-        return;
-    }
-
-
-    // Har student ko table mein show karna
-    list.forEach(function(student, index) {
-
-        const row =
-            document.createElement("tr");
-
-
-        row.innerHTML = `
-
-            <td>
-                ${index + 1}
-            </td>
-
-            <td>
-                ${student.name}
-            </td>
-
-            <td>
-                ${student.roll}
-            </td>
-
-            <td>
-                ${student.course}
-            </td>
-
-            <td>
-                ${student.email}
-            </td>
-
-            <td>
-                ${student.mobile}
-            </td>
-
-            <td>
-
-                <button
-                    class="edit-btn"
-                    onclick="editStudent(${student.id})">
-                    Edit
-                </button>
-
-                <button
-                    class="delete-btn"
-                    onclick="deleteStudent(${student.id})">
-                    Delete
-                </button>
-
-            </td>
-        `;
-
-
-        studentTableBody.appendChild(row);
-
+        return matchesSearch && matchesStatus;
     });
 
-
-    // Count update
-    updateCounts();
-
-}
-
-
-// ------------------------------------------------------
-// 5. UPDATE COUNTS
-// ------------------------------------------------------
-
-function updateCounts() {
-
-    totalStudents.textContent =
-        students.length;
-
-
-    activeStudents.textContent =
-        students.length;
-
-}
-
-
-// ------------------------------------------------------
-// 6. ADD / UPDATE STUDENT
-// ------------------------------------------------------
-
-studentForm.addEventListener(
-    "submit",
-    function(event) {
-
-        // Page reload ko rokna
-        event.preventDefault();
-
-
-        // Form ki values lena
-        const name =
-            studentName.value.trim();
-
-        const roll =
-            rollNumber.value.trim();
-
-        const selectedCourse =
-            course.value;
-
-        const studentEmail =
-            email.value.trim();
-
-        const studentMobile =
-            mobile.value.trim();
-
-
-        // ------------------------------------------------
-        // EDIT MODE
-        // ------------------------------------------------
-
-        if (editingId !== null) {
-
-            const student =
-                students.find(function(item) {
-
-                    return item.id === editingId;
-
-                });
-
-
-            if (student) {
-
-                student.name = name;
-
-                student.roll = roll;
-
-                student.course =
-                    selectedCourse;
-
-                student.email =
-                    studentEmail;
-
-                student.mobile =
-                    studentMobile;
-
-            }
-
-
-            // Edit mode close
-            editingId = null;
-
-
-            // Button normal karo
-            submitBtn.textContent =
-                "Add Student";
-
-
-            formTitle.textContent =
-                "Add New Student";
-
-        }
-
-
-        // ------------------------------------------------
-        // ADD MODE
-        // ------------------------------------------------
-
-        else {
-
-            const newStudent = {
-
-                id: Date.now(),
-
-                name: name,
-
-                roll: roll,
-
-                course: selectedCourse,
-
-                email: studentEmail,
-
-                mobile: studentMobile
-
-            };
-
-
-            // Array mein student add karna
-            students.push(newStudent);
-
-        }
-
-
-        // Data save
-        saveStudents();
-
-
-        // Form clear
-        studentForm.reset();
-
-
-        // Table update
-        displayStudents();
-
-
-        // Student records section par jana
-        document
-            .getElementById("students")
-            .scrollIntoView({
-                behavior: "smooth"
-            });
-
-    }
-);
-
-
-// ------------------------------------------------------
-// 7. EDIT STUDENT
-// ------------------------------------------------------
-
-function editStudent(id) {
-
-    // ID se student find karna
-    const student =
-        students.find(function(item) {
-
-            return item.id === id;
-
+    tableBody.innerHTML = "";
+
+    if (filtered.length === 0) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+
+        cell.colSpan = 6;
+        cell.className = "empty-state";
+        cell.textContent = students.length === 0
+            ? "✦ No student records yet. Add your first student above."
+            : "No matching records. Try another search or filter.";
+
+        row.appendChild(cell);
+        tableBody.appendChild(row);
+    } else {
+        filtered.forEach(student => {
+            const row = document.createElement("tr");
+
+            const studentName = escapeHTML(student.name);
+            const studentEmail = escapeHTML(student.email);
+            const studentRoll = escapeHTML(student.roll);
+            const studentCourse = escapeHTML(student.course);
+            const studentMobile = escapeHTML(student.mobile);
+            const studentId = escapeHTML(student.id);
+
+            const currentStatus = student.status === "Inactive"
+                ? "Inactive"
+                : "Active";
+
+            const initials = String(student.name || "?")
+                .trim()
+                .split(/\s+/)
+                .map(part => part[0] || "")
+                .slice(0, 2)
+                .join("")
+                .toUpperCase();
+
+            row.innerHTML = `
+                <td>
+                    <div class="student-info">
+                        <div class="student-avatar">${escapeHTML(initials)}</div>
+                        <div>
+                            <div class="student-name">${studentName}</div>
+                            <div class="student-email">${studentEmail}</div>
+                        </div>
+                    </div>
+                </td>
+                <td><span class="roll-badge">${studentRoll}</span></td>
+                <td>${studentCourse}</td>
+                <td>${studentMobile}</td>
+                <td>
+                    <span class="status ${
+                        currentStatus === "Active"
+                            ? "status-active"
+                            : "status-inactive"
+                    }">${currentStatus}</span>
+                </td>
+                <td>
+                    <div class="action-buttons">
+                        <button type="button" class="action-btn"
+                            data-action="edit" data-id="${studentId}">Edit</button>
+                        <button type="button" class="action-btn delete"
+                            data-action="delete" data-id="${studentId}">Delete</button>
+                    </div>
+                </td>
+            `;
+
+            tableBody.appendChild(row);
         });
+    }
 
+    $("recordCount").textContent =
+        `${filtered.length} record${filtered.length !== 1 ? "s" : ""}`;
 
-    // Student nahi mila
-    if (!student) {
+    $("tableFooter").textContent =
+        `Showing ${filtered.length} of ${students.length} students`;
 
+    updateDashboard();
+}
+
+// 8. Reset form
+function resetForm() {
+    form.reset();
+    editingId = null;
+    formTitle.textContent = "Create Student Profile";
+    submitBtn.textContent = "＋ Add Student";
+}
+
+// 9. Add or update a student
+form.addEventListener("submit", event => {
+    event.preventDefault();
+
+    const name = nameInput.value.trim();
+    const roll = rollInput.value.trim();
+    const selectedCourse = courseInput.value;
+    const email = emailInput.value.trim();
+    const mobile = mobileInput.value.trim();
+    const selectedStatus = statusInput.value;
+
+    if (!name || !roll || !selectedCourse || !email || !mobile) {
+        showToast("Please complete all required fields.");
         return;
-
     }
 
-
-    // Student ki values form mein fill karna
-    studentName.value =
-        student.name;
-
-    rollNumber.value =
-        student.roll;
-
-    course.value =
-        student.course;
-
-    email.value =
-        student.email;
-
-    mobile.value =
-        student.mobile;
-
-
-    // Edit mode ON
-    editingId = id;
-
-
-    // Button ka text change
-    submitBtn.textContent =
-        "Update Student";
-
-
-    // Heading change
-    formTitle.textContent =
-        "Edit Student";
-
-
-    // Form par smoothly jana
-    document
-        .getElementById("addStudent")
-        .scrollIntoView({
-            behavior: "smooth"
-        });
-
-}
-
-
-// ------------------------------------------------------
-// 8. DELETE STUDENT
-// ------------------------------------------------------
-
-function deleteStudent(id) {
-
-    const student =
-        students.find(function(item) {
-
-            return item.id === id;
-
-        });
-
-
-    if (!student) {
-
+    if (!/^[0-9]{10}$/.test(mobile)) {
+        showToast("Mobile number must contain exactly 10 digits.");
+        mobileInput.focus();
         return;
-
     }
 
+    const duplicate = students.some(student =>
+        String(student.roll ?? "").trim().toLowerCase() === roll.toLowerCase() &&
+        String(student.id) !== String(editingId)
+    );
 
-    // Confirmation
-    const confirmDelete =
-        confirm(
-            "Are you sure you want to delete " +
-            student.name +
-            "?"
+    if (duplicate) {
+        showToast("This roll number is already registered.");
+        rollInput.focus();
+        return;
+    }
+
+    const details = {
+        name,
+        roll,
+        course: selectedCourse,
+        email,
+        mobile,
+        status: selectedStatus
+    };
+
+    const previousStudents = students.map(student => ({ ...student }));
+
+    if (editingId !== null) {
+        const index = students.findIndex(
+            student => String(student.id) === String(editingId)
         );
 
+        if (index === -1) {
+            showToast("Student record could not be found.");
+            resetForm();
+            return;
+        }
 
-    if (!confirmDelete) {
-
-        return;
-
+        students[index] = { ...students[index], ...details };
+    } else {
+        students.push({
+            id: Date.now().toString() + "-" +
+                Math.random().toString(36).slice(2, 8),
+            ...details
+        });
     }
 
+    if (!saveStudents()) {
+        students = previousStudents;
+        return;
+    }
 
-    // Student ko remove karna
-    students =
-        students.filter(function(item) {
+    const wasEditing = editingId !== null;
 
-            return item.id !== id;
-
-        });
-
-
-    // Data save
-    saveStudents();
-
-
-    // Table update
+    resetForm();
     displayStudents();
 
-}
+    showToast(wasEditing
+        ? "Student updated successfully!"
+        : "New student added successfully!");
 
+    $("students").scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+    });
+});
 
-// ------------------------------------------------------
-// 9. SEARCH STUDENT
-// ------------------------------------------------------
+// 10. Handle Edit and Delete buttons
+tableBody.addEventListener("click", event => {
+    const button = event.target.closest("button[data-action]");
+    if (!button) return;
 
-searchStudent.addEventListener(
-    "input",
-    function() {
+    const student = students.find(
+        item => String(item.id) === button.dataset.id
+    );
 
-        const searchValue =
-            searchStudent.value
-                .toLowerCase()
-                .trim();
+    if (!student) {
+        showToast("Student record not found.");
+        return;
+    }
 
+    if (button.dataset.action === "edit") {
+        editingId = student.id;
 
-        const filteredStudents =
-            students.filter(function(student) {
+        nameInput.value = student.name || "";
+        rollInput.value = student.roll || "";
+        courseInput.value = student.course || "";
+        emailInput.value = student.email || "";
+        mobileInput.value = student.mobile || "";
+        statusInput.value = student.status || "Active";
 
-                return (
+        formTitle.textContent = "Edit Student Profile";
+        submitBtn.textContent = "Save Changes";
 
-                    student.name
-                        .toLowerCase()
-                        .includes(searchValue)
+        $("addStudent").scrollIntoView({
+            behavior: "smooth",
+            block: "start"
+        });
 
-                    ||
+        nameInput.focus();
+        showToast("Edit the details and save your changes.");
+    }
 
-                    student.roll
-                        .toLowerCase()
-                        .includes(searchValue)
+    if (button.dataset.action === "delete") {
+        if (!confirm(`Delete the record for ${student.name}?`)) return;
 
-                    ||
-
-                    student.course
-                        .toLowerCase()
-                        .includes(searchValue)
-
-                    ||
-
-                    student.email
-                        .toLowerCase()
-                        .includes(searchValue)
-
-                );
-
-            });
-
-
-        displayStudents(
-            filteredStudents
+        const previousStudents = students;
+        students = students.filter(
+            item => String(item.id) !== String(student.id)
         );
 
+        if (!saveStudents()) {
+            students = previousStudents;
+            return;
+        }
+
+        if (String(editingId) === String(student.id)) {
+            resetForm();
+        }
+
+        displayStudents();
+        showToast("Student record deleted.");
     }
-);
+});
 
+// 11. Search and filter
+searchInput.addEventListener("input", displayStudents);
+filterStatus.addEventListener("change", displayStudents);
 
-// ------------------------------------------------------
-// 10. CANCEL EDIT
-// ------------------------------------------------------
+// Both search fields work together
+globalSearch.addEventListener("input", () => {
+    searchInput.value = globalSearch.value;
+    displayStudents();
+});
 
-cancelBtn.addEventListener(
-    "click",
-    function() {
+searchInput.addEventListener("input", () => {
+    globalSearch.value = searchInput.value;
+});
 
-        // Form clear
-        studentForm.reset();
+// 12. Clear the form
+$("cancelBtn").addEventListener("click", () => {
+    resetForm();
+    showToast("Form cleared.");
+});
 
+// 13. Sidebar active navigation
+document.querySelectorAll(".nav-item").forEach(link => {
+    link.addEventListener("click", () => {
+        document.querySelectorAll(".nav-item").forEach(item =>
+            item.classList.remove("active")
+        );
+        link.classList.add("active");
+    });
+});
 
-        // Edit mode off
-        editingId = null;
+// 14. Light / dark theme toggle
+const themeBtn = $("themeBtn");
 
+themeBtn.addEventListener("click", () => {
+    document.body.classList.toggle("light-mode");
 
-        // Normal button
-        submitBtn.textContent =
-            "Add Student";
+    const isLight = document.body.classList.contains("light-mode");
+    themeBtn.textContent = isLight ? "☀" : "☾";
+    themeBtn.title = isLight ? "Switch to dark theme" : "Switch to light theme";
+});
 
-
-        // Normal heading
-        formTitle.textContent =
-            "Add New Student";
-
-    }
-);
-
-
-// ------------------------------------------------------
-// 11. PAGE LOAD
-// ------------------------------------------------------
-
-// Page open hote hi students display
+// 15. Load the dashboard
 displayStudents();
-
